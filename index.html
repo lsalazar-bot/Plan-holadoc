@@ -176,11 +176,6 @@ function render(D) {
 
   if ((D.tareas || []).filter(t => !["901418362586", "901421930186"].includes(String(t.l))).length >= 1150) ALERTS.push("Las carpetas de sprint superan ~1.150 tareas: hay que ampliar las páginas de la consulta en Make.");
   const tasks = (D.tareas || []).map(t => ({ ...t, l: String(t.l), pa: t.pa || "", pv: (t.pv === "" || t.pv == null) ? null : Number(t.pv), s: low(t.s) }));
-  // estados desconocidos
-  const unk = [...new Set(tasks.map(t => t.s).filter(s => !CFG.ST[s]))];
-  if (unk.length) ALERTS.push(`Estados de tarea nuevos sin mapear: <b>${unk.map(esc).join(", ")}</b>`);
-  const newAs = [...new Set(tasks.flatMap(t => (t.as || []).map(a => String(a))).filter(a => !CFG.KNOWN_ASSIGNEES.includes(low(a))))];
-  if (newAs.length) ALERTS.push(`Asignados nuevos sin rol en el equipo: <b>${newAs.map(esc).join(", ")}</b>`);
 
   /* ---------- sprints por proyecto ---------- */
   const lists = (D.listas || []).map(l => ({ ...l, id: String(l.id), fo: String(l.fo) }));
@@ -236,6 +231,14 @@ function render(D) {
     }
     return { ...P, field, done, tot: field.length, pct: capped(done, field.length), sprints, rango };
   });
+
+  // alertas: solo sobre las tareas que entran en el reporte (campo marcado en sprints, principales de sprint y backlogs)
+  const bIds = CFG.BACKLOGS.map(B => B.id);
+  const uni = [...new Set([...PROJ.flatMap(P => [...P.field, ...P.sprints.flatMap(s => s.main)]), ...tasks.filter(t => bIds.includes(t.l) && !t.pa)])];
+  const unk = [...new Set(uni.map(t => t.s).filter(s => !CFG.ST[s]))];
+  if (unk.length) ALERTS.push(`Estados de tarea nuevos sin mapear: <b>${unk.map(esc).join(", ")}</b>`);
+  const newAs = [...new Set(uni.flatMap(t => (t.as || []).map(a => String(a))).filter(a => !CFG.KNOWN_ASSIGNEES.includes(low(a))))];
+  if (newAs.length) ALERTS.push(`Asignados nuevos sin rol en el equipo: <b>${newAs.map(esc).join(", ")}</b>`);
 
   /* ---------- 00 Resumen ---------- */
   let RS_TOT = 0, RS_DONE = 0, RS_SP = 0, RS_CLOSED = 0, RS_PARTIAL = 0, RS_PLAN = 0; const PL = [], PLN = [];
