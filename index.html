@@ -108,10 +108,10 @@ const CFG = {
   ],
   /* Notas manuales: se editan a pedido de Luis */
   MILESTONES: {
-    "Receta Electrónica MVP": "🏁 <b>SP-5 cerrado</b> (28 oct – 10 nov) · MVP en fase de pase a producción; pendiente la revisión de QA posterior al pase.",
-    "VitalHub": "📅 <b>SP-2 en curso</b> (10 – 23 nov 2026) · Sprint en inicio."
+    "Receta Electrónica MVP": "🚀 <b>SP-6 en curso</b> (17 – 27 nov 2026) · Estabilización del backend, deuda técnica (Node v24 y Angular 19), documentación de la Fase 1 y piloto en producción con médicos reales. El SP-5 cerró con el pase a producción y su revisión de QA pendientes.",
+    "VitalHub": "📅 <b>SP-2</b> (10 – 23 nov 2026) · En curso Aliados y cupones (E04-01) y el newsletter con Kit; pendiente el pase a producción (back, front y admin) y su revisión de QA."
   },
-  NOTA_RESUMEN: "Receta Electrónica cerró el SP-5 con el pase a producción y la revisión posterior en QA pendientes; VitalHub cerró su SP-1 con 1 tarea bloqueada (newsletter con Kit) y se prepara para el SP-2.",
+  NOTA_RESUMEN: "Receta Electrónica avanza en el SP-6 con la estabilización del backend, la deuda técnica y el piloto con médicos reales; el SP-5 cerró con el pase a producción y su revisión de QA pendientes. VitalHub cierra el SP-2 con Aliados y cupones en curso y el pase a producción pendiente.",
   /* Forzar estado de un sprint si hiciera falta: { "<list_id>": "cerrado" | "curso" | "iniciar" } */
   SPRINT_OVERRIDE: {},
   TEAM: [
@@ -207,7 +207,7 @@ function render(D) {
       const listPlanned = ov ? ov === "iniciar" : CFG.LIST_PLANNED.test(lst);
       const listActive = ov ? ov === "curso" : CFG.LIST_ACTIVE.test(lst);
       if (lst && !ov && !listClosed && !listPlanned && !listActive) ALERTS.push(`Estado de sprint no reconocido en ${esc(P.name)} · ${esc(l.n)}: <b>${esc(l.st)}</b> (se usaron las fechas)`);
-      const dueMs = l.dd ? +l.dd : (per.b ? Date.UTC(per.b.y, per.b.m, per.b.d, 23, 59) : null);
+      const dueMs = per.b ? Date.UTC(per.b.y, per.b.m, per.b.d, 23, 59, 59) + 4 * 3600e3 : (l.dd ? +l.dd : null); // cierra al terminar su último día (hora Venezuela)
       const startMs = l.sd ? +l.sd : (per.a ? Date.UTC(per.a.y, per.a.m, per.a.d) : null);
       if (sn > 0 && sd === sn) state = "done";
       else if (listClosed) state = "partial";
@@ -239,6 +239,33 @@ function render(D) {
   if (unk.length) ALERTS.push(`Estados de tarea nuevos sin mapear: <b>${unk.map(esc).join(", ")}</b>`);
   const newAs = [...new Set(uni.flatMap(t => (t.as || []).map(a => String(a))).filter(a => !CFG.KNOWN_ASSIGNEES.includes(low(a))))];
   if (newAs.length) ALERTS.push(`Asignados nuevos sin rol en el equipo: <b>${newAs.map(esc).join(", ")}</b>`);
+
+  /* notas automáticas por proyecto: salen de los datos del corte */
+  const clean = n => { let x = String(n).trim().replace(/^SP\d+\s*·\s*/i, ""); return x.length > 70 ? x.slice(0, 67).trim() + "…" : x; };
+  function notes(P) {
+    const out = [], short = [];
+    P.sprints.filter(s => s.state === "active").forEach(s => {
+      const open = s.main.filter(t => !isDone(t.s));
+      const dg = open.filter(t => isDoing(t.s)).length, bk = open.filter(t => isBlk(t.s)).length, pd = open.length - dg - bk;
+      const det = [dg ? `${dg} en curso` : "", pd ? `${pd} por hacer` : "", bk ? `${bk} bloqueada${bk > 1 ? "s" : ""}` : ""].filter(Boolean).join(", ");
+      out.push(`▶ <b>${s.code} en curso</b> (${s.per}) · ${s.pc}%${det ? ` · tareas principales abiertas: ${det}` : ""}.`);
+      short.push(`${s.code} en curso (${s.pc}%)`);
+    });
+    const closed = P.sprints.filter(s => s.state === "done" || s.state === "partial");
+    const last = closed[closed.length - 1];
+    if (last) {
+      if (last.state === "partial") {
+        const op = last.ft.filter(t => !isDone(t.s));
+        const names = op.slice(0, 3).map(t => esc(clean(t.n))).join("; ") + (op.length > 3 ? ` y ${op.length - 3} más` : "");
+        out.push(`🏁 <b>${last.code} cerró al ${last.pc}%</b> (${last.per}) con ${op.length} pendiente${op.length > 1 ? "s" : ""}: ${names}${names.endsWith("…") ? "" : "."}`);
+        short.push(`${last.code} cerró al ${last.pc}% con ${op.length} pendiente${op.length > 1 ? "s" : ""}`);
+      } else { out.push(`🏁 <b>${last.code} cerró al 100%</b> (${last.per}).`); short.push(`${last.code} cerró al 100%`); }
+    }
+    P.sprints.filter(s => s.state === "planned").forEach(s => { out.push(`◷ <b>${s.code} por iniciar</b> (${s.per}).`); short.push(`${s.code} por iniciar`); });
+    if (!P.sprints.some(s => s.state === "active")) out.unshift("Sin sprint en curso a la fecha de corte.");
+    return { html: out.join("<br>"), short: `<b>${P.name}</b>: ${short.join("; ") || "sin sprints"}` };
+  }
+  const NOTES = Object.fromEntries(PROJ.map(P => [P.ini, notes(P)]));
 
   /* ---------- 00 Resumen ---------- */
   let RS_TOT = 0, RS_DONE = 0, RS_SP = 0, RS_CLOSED = 0, RS_PARTIAL = 0, RS_PLAN = 0; const PL = [], PLN = [];
@@ -272,7 +299,7 @@ function render(D) {
 <div class="kpis"><div class="kpi"><b>${RS_SP}</b><small>Sprints totales</small></div><div class="kpi"><b>${RS_CLOSED + RS_PARTIAL}</b><small>Sprints cerrados<br>${RS_CLOSED} al 100% · ${RS_PARTIAL} con pendientes</small></div><div class="kpi"><b>${RS_RUN}</b><small>Sprints en curso</small></div><div class="kpi"><b>${RS_PLAN}</b><small>Sprints por iniciar</small></div><div class="kpi"><b>${CFG.TEAM.length}</b><small>Integrantes del equipo</small></div></div></div>
 <div class="card"><div class="head"><h2>Estado de Sprints</h2><span class="lbl">Corte ${CORTE}</span></div>
 <table class="tbl rstbl"><thead><tr><th>Proyecto</th><th>Sprint</th><th>Período</th><th class="num">Tareas + sub</th><th class="num">Principales</th><th>Avance</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table><div class="rscards">${cards}</div>
-<p class="note">La célula HolaDOC acumula <b>${RS_CLOSED + RS_PARTIAL} sprints cerrados (${RS_CLOSED} al 100% · ${RS_PARTIAL} con pendientes) · ${RS_RUN} en ejecución · ${RS_PLAN} por iniciar · ${RS_SP} sprints en total</b>, con ${RS_DONE} tareas y subtareas completadas.${PL.length ? " Cerrados con pendientes: " + PL.join(" y ") + "." : ""}${PLN.length ? " Por iniciar: " + PLN.join(" y ") + "." : ""} ${CFG.NOTA_RESUMEN}</p></div>`;
+<p class="note">La célula HolaDOC acumula <b>${RS_CLOSED + RS_PARTIAL} sprints cerrados (${RS_CLOSED} al 100% · ${RS_PARTIAL} con pendientes) · ${RS_RUN} en ejecución · ${RS_PLAN} por iniciar · ${RS_SP} sprints en total</b>, con ${RS_DONE} tareas y subtareas completadas.${PL.length ? " Cerrados con pendientes: " + PL.join(" y ") + "." : ""}${PLN.length ? " Por iniciar: " + PLN.join(" y ") + "." : ""} ${PROJ.map(P => NOTES[P.ini].short).join(" · ")}.</p></div>`;
 
   /* ---------- 01 Iniciativas ---------- */
   const t2cards = PROJ.map(P => {
@@ -296,7 +323,7 @@ function render(D) {
     if (doing.length) pills += chip("run", "▶ " + grp(doing, "en curso", "en curso"));
     if (pend.length) pills += chip("pend", "◷ " + grp(pend, "pendiente", "pendientes"));
     if (blk.length) pills += chip("blk", "⊘ " + grp(blk, "bloqueada", "bloqueadas"));
-    return `<div class="card init"><div class="row"><div><h3>${P.icon} ${P.ini}</h3><small>${parts.join(" · ")}</small></div><span class="pctpill">${pct}%</span></div><div class="bar ${P.bar}"><i style="width:${pct}%"></i></div>${pills}${CFG.MILESTONES[P.ini] ? `<div class="milestone">${CFG.MILESTONES[P.ini]}</div>` : ""}</div>`;
+    return `<div class="card init"><div class="row"><div><h3>${P.icon} ${P.ini}</h3><small>${parts.join(" · ")}</small></div><span class="pctpill">${pct}%</span></div><div class="bar ${P.bar}"><i style="width:${pct}%"></i></div>${pills}${NOTES[P.ini] && NOTES[P.ini].html ? `<div class="milestone">${NOTES[P.ini].html}</div>` : ""}</div>`;
   }).join("");
   const t2 = `<div class="card"><div class="head"><h2>Estado actual de las iniciativas</h2><span class="lbl">Campo "Proyectos HolaDOC" · Sprints ClickUp · ${CORTE}</span></div>
 <p class="note">% calculado sobre tareas y subtareas en <b>carpetas de sprints</b> con el campo <b>Proyectos HolaDOC</b> marcado por cada opción. Se cuenta el total real de tareas y subtareas con el campo marcado, sin exclusiones.</p>
